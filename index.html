@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1730">
+<title>Banco de Clase</title>
+<style>
+:root{--bg:#0f1730;--card:#1a2547;--card2:#223060;--txt:#eef1ff;--mut:#9aa6d1;--oro:#ffc83d;--ok:#2ecc8f;--mal:#ff5d6c;--pri:#5b7cff;--r:14px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{padding:16px 16px 96px;max-width:640px;margin:0 auto}
+h1{font-size:22px;margin:4px 0 12px}
+h2{font-size:15px;color:var(--mut);margin:22px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+p{margin:6px 0}
+.nota{color:var(--mut);font-size:14px}
+button{font:inherit;color:inherit;border:0;border-radius:var(--r);padding:12px 16px;background:var(--card2);min-height:48px;cursor:pointer}
+button:active{filter:brightness(1.2)}
+button.ok{background:var(--ok);color:#06251a;font-weight:700}
+button.mal{background:var(--mal);color:#3a0710;font-weight:700}
+button.pri{background:var(--pri);font-weight:700}
+button.oro{background:var(--oro);color:#3a2a00;font-weight:700}
+button.grande{width:100%;min-height:72px;font-size:19px;font-weight:700}
+button:disabled{opacity:.45}
+input,select,textarea{font:inherit;color:var(--txt);background:var(--card);border:2px solid var(--card2);border-radius:var(--r);padding:12px;width:100%;min-height:48px}
+textarea{min-height:140px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pri)}
+form{display:grid;gap:10px;margin:10px 0}
+.fila{display:flex;gap:10px}.fila>*{flex:1}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.chips button{min-height:42px;padding:8px 14px;background:var(--card)}
+.chips button.sel{background:var(--pri)}
+.card{background:var(--card);border-radius:var(--r);padding:14px;margin:8px 0}
+.lista{display:grid;gap:8px}
+.fila-al{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;background:var(--card)}
+.fila-al small{display:block;color:var(--mut)}
+.coin{color:var(--oro);font-weight:700;white-space:nowrap}
+.saldo{text-align:center;padding:18px 0 6px}
+.saldo .num{font-size:56px;font-weight:800;color:var(--oro);line-height:1}
+.tres{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.tres div{background:var(--card);border-radius:var(--r);padding:10px;text-align:center}
+.tres b{display:block;font-size:20px}.tres span{font-size:12px;color:var(--mut)}
+.acciones{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.acciones .oro{grid-column:1/-1}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.top h1{flex:1;margin:0}
+.top button{min-width:48px;padding:8px}
+.mov{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--card2)}
+.mov small{color:var(--mut);display:block}
+.mov .anulado{text-decoration:line-through;opacity:.5}
+.pos{color:var(--ok);font-weight:700}.neg{color:var(--mal);font-weight:700}
+.mini{min-height:34px;padding:4px 10px;font-size:13px}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:#0a1128;border-top:1px solid var(--card2);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border-radius:0;background:none;color:var(--mut);font-size:13px;min-height:58px;padding:6px 2px}
+nav button.act{color:var(--oro);font-weight:700}
+#modal .velo{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+#modal .hoja{background:var(--bg);width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;padding:18px 16px 28px}
+#toast{position:fixed;left:12px;right:12px;bottom:84px;background:#fff;color:#111;border-radius:var(--r);padding:12px 14px;z-index:30;display:none;max-width:616px;margin:auto;font-weight:600}
+.nivel{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--card2);color:var(--mut);margin-right:6px}
+.centro{text-align:center}
+.pulso{animation:p 1.4s infinite}@keyframes p{50%{opacity:.55}}
+.oculto{display:none!important}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="modal"></div>
+<div id="toast"></div>
+<script>
+'use strict';
+/* ===== Banco de Clase · app del docente · versión local (etapas 1 a 3 y 5) =====
+   Los datos viven en este navegador (localStorage). Para que los alumnos consulten desde
+   casa, en la etapa 4 se cambia la capa de datos por una base de datos en la nube. */
+
+const KEY = 'bancoClase.v1';
+const MONTOS = [50, 100, 200, 500];
+const MOTIVOS = {
+  gano: ['Participación', 'Tarea entregada', 'Buen comportamiento', 'Trabajo en equipo', 'Ayudó a un compañero'],
+  perdio: ['Desorden', 'Tarea no entregada', 'Sin material', 'Faltó al respeto']
+};
+const CATALOGO_INICIAL = [
+  ['asiento-vip', 'Bronce', 'Asiento VIP', 500, 'Elegir lugar o sentarse junto a un amigo un día completo; si hay desorden se pierde sin reembolso.'],
+  ['playlist', 'Bronce', 'Playlist de Aventura', 600, 'Elegir la música ambiental del trabajo individual (instrumental, lofi o de videojuegos); sin reggaetón ni groserías, aprobada por el docente.'],
+  ['escribano', 'Bronce', 'El Escribano del Reino / Plumón Mágico', 700, 'Hacer apuntes, exámenes o actividades del día con plumas de colores o plumones.'],
+  ['avatar', 'Bronce', 'Creación de avatar', 800, 'Se genera la primera imagen del avatar personalizado.'],
+  ['apunte', 'Bronce', 'Apunte mágico', 1000, 'Pedir impreso un dictado hecho en clase para pegarlo en el cuaderno.'],
+  ['extension', 'Plata', 'Pase de Extensión de Vida', 800, '24 horas extra para entregar una tarea regular; no aplica a proyectos finales ni evaluaciones del mes.'],
+  ['inmunidad', 'Plata', 'Inmunidad de Pizarra', 950, 'Un día de inmunidad: vale 10 en la evaluación continua de ese día.'],
+  ['skin', 'Plata', 'Pase Cambio de Skin', 1100, 'Comprar accesorios únicos para el avatar.'],
+  ['respawn', 'Oro', 'El Doble Intento / Respawn', 1300, 'Repetir una pregunta mal contestada en trabajos diarios o quizzes pequeños para recuperar puntos.'],
+  ['skip', 'Oro', 'Pase Skip Tarea', 1500, 'Cancela una tarea regular con calificación completa; no acumulable para proyectos de fin de bloque; máximo 1 uso al mes.', 1],
+  ['juego', 'Oro', 'Modo de Juego / Lectura Libre', 1800, '30 minutos de juego de mesa o lectura libre en el bloque lúdico grupal, excepto el último viernes del mes.']
+];
+
+/* ---------- Datos ---------- */
+function datosIniciales() {
+  return {
+    version: 1, auth: null, alumnos: [], movimientos: [], compras: [],
+    catalogo: CATALOGO_INICIAL.map(([id, nivel, nombre, precio, regla, limiteMes]) => ({ id, nivel, nombre, precio, regla, limiteMes: limiteMes || 0, activo: true }))
+  };
+}
+let db = cargar();
+function cargar() {
+  try { const r = localStorage.getItem(KEY); return r ? JSON.parse(r) : datosIniciales(); }
+  catch (e) { return datosIniciales(); }
+}
+function guardar() {
+  try { localStorage.setItem(KEY, JSON.stringify(db)); }
+  catch (e) { aviso('No se pudo guardar en este teléfono. Exporta un respaldo ya.'); }
+}
+
+/* ---------- Utilidades ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const fmt = n => Number(n).toLocaleString('es-MX');
+const fechaCorta = ts => new Date(ts).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+const normId = s => String(s || '').replace(/[\s:\-]/g, '').toUpperCase();
+const mismoMes = ts => { const a = new Date(ts), b = new Date(); return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth(); };
+const alumnoPor = id => db.alumnos.find(a => a.id === id);
+let tAviso = null;
+function aviso(t) {
+  const el = $('#toast'); if (!el) return;
+  el.textContent = t; el.style.display = 'block';
+  clearTimeout(tAviso); tAviso = setTimeout(() => { el.style.display = 'none'; }, 3200);
+}
+function codigoAcceso() {
+  const L = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let c;
+  do {
+    const b = new Uint8Array(8); crypto.getRandomValues(b);
+    c = [...b].map(x => L[x % L.length]).join('');
+  } while (db.alumnos.some(a => a.codigo === c));
+  return c;
+}
+async function hashPw(pw, sal) {
+  const datos = new TextEncoder().encode(sal + pw);
+  if (crypto.subtle) {
+    const d = await crypto.subtle.digest('SHA-256', datos);
+    return [...new Uint8Array(d)].map(x => x.toString(16).padStart(2, '0')).join('');
+  }
+  let h = 5381; for (const b of datos) h = ((h * 33) ^ b) >>> 0; return String(h);
+}
+// La sesión vive en memoria; sessionStorage solo ayuda a conservarla al recargar (puede estar bloqueado).
+let sesionActiva = false;
+const sesion = () => { if (sesionActiva) return true; try { return sessionStorage.getItem('s') === '1'; } catch (e) { return false; } };
+const setSesion = v => { sesionActiva = v; try { v ? sessionStorage.setItem('s', '1') : sessionStorage.removeItem('s'); } catch (e) { } };
+const almacenamientoOk = (() => { try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); return true; } catch (e) { return false; } })();
+const bannerAlmacen = () => almacenamientoOk ? '' : '<div class="card" style="background:#5a2a00;margin:12px"><b>Este navegador no deja guardar datos aquí.</b><p class="nota" style="color:#ffd9b0">Pasa al abrir el archivo directo desde Descargas. Publica la página en una dirección https (Netlify o GitHub Pages) y ábrela en Chrome; si no, todo se pierde al cerrar.</p></div>';
+
+/* ---------- Lógica del banco ---------- */
+// delta es con signo; el saldo siempre es la suma de los deltas. Un movimiento anulado
+// y su corrección se cancelan y no cuentan en ganado, perdido ni gastado.
+function addMov({ alumnoId, tipo, delta, motivo, anulaA, compraId }) {
+  const m = { id: uid(), alumnoId, tipo, delta, motivo, ts: Date.now() };
+  if (anulaA) m.anulaA = anulaA;
+  if (compraId) m.compraId = compraId;
+  db.movimientos.push(m); return m;
+}
+function cuenta(alumnoId) {
+  const movs = db.movimientos.filter(m => m.alumnoId === alumnoId);
+  const anulados = new Set(movs.filter(m => m.anulaA).map(m => m.anulaA));
+  let saldo = 0, ganado = 0, perdido = 0, gastado = 0;
+  for (const m of movs) {
+    saldo += m.delta;
+    if (m.anulaA || anulados.has(m.id)) continue;
+    if (m.tipo === 'gano') ganado += m.delta;
+    else if (m.tipo === 'perdio') perdido -= m.delta;
+    else if (m.tipo === 'gasto') gastado -= m.delta;
+  }
+  return { saldo, ganado, perdido, gastado, anulados };
+}
+function movimientosDe(alumnoId) { return db.movimientos.filter(m => m.alumnoId === alumnoId).slice().reverse(); }
+function registrar(alumnoId, tipo, monto, motivo) {
+  const a = alumnoPor(alumnoId);
+  if (!a) return 'Alumno no encontrado.';
+  if (!Number.isInteger(monto) || monto < 1) return 'Escribe un monto entero mayor a 0.';
+  if (!motivo || !motivo.trim()) return 'Escribe el motivo.';
+  if (tipo === 'perdio' && monto > cuenta(alumnoId).saldo) return 'El alumno no tiene tantas monedas para restar.';
+  addMov({ alumnoId, tipo, delta: tipo === 'gano' ? monto : -monto, motivo: motivo.trim() });
+  guardar(); return null;
+}
+function deshacerMov(movId) {
+  const m = db.movimientos.find(x => x.id === movId);
+  if (!m || m.anulaA) return 'No se puede deshacer este movimiento.';
+  if (db.movimientos.some(x => x.anulaA === movId)) return 'Ese movimiento ya estaba deshecho.';
+  addMov({ alumnoId: m.alumnoId, tipo: 'correccion', delta: -m.delta, motivo: 'Corrección: ' + m.motivo, anulaA: m.id });
+  if (m.compraId) { const c = db.compras.find(x => x.id === m.compraId); if (c) c.estado = 'anulada'; }
+  guardar(); return null;
+}
+function usosEsteMes(alumnoId, itemId) {
+  return db.compras.filter(c => c.alumnoId === alumnoId && c.itemId === itemId && c.estado !== 'anulada' && mismoMes(c.ts)).length;
+}
+function motivoNoCompra(alumnoId, item) {
+  if (!item.activo) return 'No disponible';
+  if (cuenta(alumnoId).saldo < item.precio) return 'Faltan ' + fmt(item.precio - cuenta(alumnoId).saldo);
+  if (item.limiteMes && usosEsteMes(alumnoId, item.id) >= item.limiteMes) return 'Límite del mes alcanzado';
+  return null;
+}
+function comprar(alumnoId, itemId) {
+  const item = db.catalogo.find(i => i.id === itemId);
+  if (!item || !alumnoPor(alumnoId)) return 'No se encontró la compra.';
+  const por = motivoNoCompra(alumnoId, item); if (por) return por;
+  const compra = { id: uid(), alumnoId, itemId, nombre: item.nombre, precio: item.precio, estado: 'pendiente', ts: Date.now() };
+  db.compras.push(compra);
+  addMov({ alumnoId, tipo: 'gasto', delta: -item.precio, motivo: 'Compra: ' + item.nombre, compraId: compra.id });
+  guardar(); return null;
+}
+function canjear(compraId) {
+  const c = db.compras.find(x => x.id === compraId);
+  if (!c || c.estado !== 'pendiente') return false;
+  c.estado = 'canjeado'; c.canjeTs = Date.now(); guardar(); return true;
+}
+
+/* ---------- NFC ---------- */
+let nfcCtl = null, scanMode = { tipo: 'buscar' }, modalAbierto = false;
+async function activarNFC() {
+  if (!('NDEFReader' in window)) { aviso('Este navegador no lee NFC. Usa Chrome en un Android con NFC.'); return false; }
+  if (nfcCtl) return true;
+  try {
+    const lector = new NDEFReader(); const ctl = new AbortController();
+    await lector.scan({ signal: ctl.signal });
+    nfcCtl = ctl;
+    lector.onreading = e => { if (navigator.vibrate) navigator.vibrate(60); alLeerTarjeta(normId(e.serialNumber)); };
+    lector.onreadingerror = () => aviso('No se pudo leer la tarjeta. Intenta de nuevo.');
+    return true;
+  } catch (err) {
+    aviso(err && err.name === 'NotAllowedError' ? 'Permiso de NFC denegado. Actívalo en el navegador.' : 'No se pudo activar NFC. Revisa que esté encendido.');
+    return false;
+  }
+}
+function alLeerTarjeta(id) {
+  if (!id) { aviso('La tarjeta no entregó un código. Prueba con otra.'); return; }
+  if (scanMode.tipo === 'vincular') { asignarTarjeta(scanMode.alumnoId, id); return; }
+  if (modalAbierto) return;
+  const a = db.alumnos.find(x => x.tarjeta === id);
+  if (a) { ui.alumnoId = a.id; render(); window.scrollTo(0, 0); }
+  else modalTarjetaNueva(id);
+}
+function asignarTarjeta(alumnoId, id) {
+  const otro = db.alumnos.find(x => x.tarjeta === id && x.id !== alumnoId);
+  if (otro) { aviso('Esa tarjeta ya es de ' + otro.nombre + '.'); return; }
+  const a = alumnoPor(alumnoId); if (!a) return;
+  a.tarjeta = id; guardar();
+  scanMode = { tipo: 'buscar' }; cerrarModal(); aviso('Tarjeta vinculada a ' + a.nombre + '.'); render();
+}
+
+/* ---------- Interfaz ---------- */
+const ui = { tab: 'escanear', alumnoId: null };
+function abrirModal(html) { modalAbierto = true; $('#modal').innerHTML = '<div class="velo"><div class="hoja">' + html + '</div></div>'; }
+function cerrarModal() { modalAbierto = false; $('#modal').innerHTML = ''; if (scanMode.tipo === 'vincular') scanMode = { tipo: 'buscar' }; }
+
+function render() {
+  const raiz = $('#app');
+  if (!db.auth) { raiz.innerHTML = bannerAlmacen() + vistaConfig(); return; }
+  if (!sesion()) { raiz.innerHTML = bannerAlmacen() + vistaLogin(); return; }
+  raiz.innerHTML = bannerAlmacen() + '<main>' + (ui.alumnoId ? vistaFicha() : vistaTab()) + '</main>' + (ui.alumnoId ? '' : nav());
+}
+function nav() {
+  const t = [['escanear', 'Escanear'], ['alumnos', 'Alumnos'], ['tienda', 'Tienda'], ['historial', 'Historial'], ['mas', 'Más']];
+  return '<nav>' + t.map(([k, n]) => '<button data-act="tab" data-tab="' + k + '" class="' + (ui.tab === k ? 'act' : '') + '">' + n + '</button>').join('') + '</nav>';
+}
+function vistaTab() {
+  return { escanear: vistaEscanear, alumnos: vistaAlumnos, tienda: vistaTienda, historial: vistaHistorial, mas: vistaMas }[ui.tab]();
+}
+function vistaConfig() {
+  return '<main><h1>Banco de Clase</h1><p class="nota">Crea tu contraseña de docente. Solo tú podrás sumar, restar y registrar compras.</p>' +
+    '<form data-form="config"><input type="password" name="pw" placeholder="Contraseña (mínimo 6 caracteres)" autocomplete="new-password" required>' +
+    '<input type="password" name="pw2" placeholder="Repite la contraseña" autocomplete="new-password" required><button class="pri">Crear y entrar</button></form></main>';
+}
+function vistaLogin() {
+  return '<main><h1>Banco de Clase</h1><form data-form="login"><input type="password" name="pw" placeholder="Contraseña" autocomplete="current-password" required><button class="pri">Entrar</button></form></main>';
+}
+function vistaEscanear() {
+  const pend = db.compras.filter(c => c.estado === 'pendiente').length;
+  const total = db.alumnos.reduce((s, a) => s + cuenta(a.id).saldo, 0);
+  return '<h1>Escanear tarjeta</h1>' +
+    '<button class="grande ' + (nfcCtl ? 'ok' : 'pri') + '" data-act="nfc">' + (nfcCtl ? 'Lector activo: acerca una tarjeta' : 'Activar lector NFC') + '</button>' +
+    '<p class="nota centro">' + (nfcCtl ? 'Acerca la tarjeta a la parte trasera del teléfono.' : 'Toca el botón y luego acerca la tarjeta de un alumno.') + '</p>' +
+    '<h2>Sin NFC</h2><form data-form="manual"><input name="q" placeholder="Código de tarjeta o nombre del alumno"><button>Buscar</button></form>' +
+    '<h2>Resumen</h2><div class="tres"><div><b>' + db.alumnos.length + '</b><span>alumnos</span></div><div><b>' + fmt(total) + '</b><span>monedas</span></div><div><b>' + pend + '</b><span>por canjear</span></div></div>';
+}
+function vistaAlumnos() {
+  const lista = db.alumnos.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  const sinT = db.alumnos.filter(a => !a.tarjeta && a.activo).length;
+  return '<h1>Alumnos</h1><button class="pri" style="width:100%" data-act="agregarAlumnos">Agregar alumnos</button>' +
+    (sinT ? '<p class="nota">' + sinT + ' sin tarjeta vinculada.</p>' : '') +
+    '<input id="buscar" placeholder="Buscar por nombre" style="margin:12px 0"><div class="lista" id="listaAl">' +
+    (lista.length ? lista.map(a => '<button class="fila-al" data-act="abrir" data-id="' + a.id + '" data-n="' + esc(a.nombre.toLowerCase()) + '"><span>' + esc(a.nombre) +
+      '<small>' + (a.activo ? (a.tarjeta ? 'Con tarjeta' : 'Sin tarjeta') : 'De baja') + '</small></span><span class="coin">' + fmt(cuenta(a.id).saldo) + '</span></button>').join('') : '<p class="nota">Aún no hay alumnos. Toca "Agregar alumnos".</p>') + '</div>';
+}
+function vistaFicha() {
+  const a = alumnoPor(ui.alumnoId); if (!a) { ui.alumnoId = null; return vistaTab(); }
+  const c = cuenta(a.id);
+  const pend = db.compras.filter(x => x.alumnoId === a.id && x.estado === 'pendiente');
+  return '<div class="top"><button data-act="cerrarFicha">←</button><h1>' + esc(a.nombre) + '</h1><button data-act="menuAlumno">⋯</button></div>' +
+    (a.activo ? '' : '<p class="nota">Alumno dado de baja.</p>') +
+    '<div class="saldo"><div class="num">' + fmt(c.saldo) + '</div><div class="nota">monedas</div></div>' +
+    '<div class="tres"><div><b class="pos">' + fmt(c.ganado) + '</b><span>ganado</span></div><div><b class="neg">' + fmt(c.perdido) + '</b><span>perdido</span></div><div><b>' + fmt(c.gastado) + '</b><span>gastado</span></div></div>' +
+    '<div class="acciones"><button class="ok" data-act="sumar">+ Sumar</button><button class="mal" data-act="restar">− Restar</button><button class="oro" data-act="comprar">Comprar en la tienda</button></div>' +
+    (pend.length ? '<h2>Por canjear</h2>' + pend.map(p => '<div class="card fila"><span>' + esc(p.nombre) + '<small class="nota" style="display:block">' + fechaCorta(p.ts) + '</small></span><button class="ok mini" style="flex:none" data-act="canjear" data-id="' + p.id + '">Canjear</button></div>').join('') : '') +
+    '<h2>Movimientos</h2>' + (movimientosDe(a.id).slice(0, 25).map(m => filaMov(m, c.anulados, false)).join('') || '<p class="nota">Sin movimientos todavía.</p>') +
+    '<p class="nota" style="margin-top:20px">Código de acceso del alumno: <b>' + esc(a.codigo) + '</b></p>';
+}
+function filaMov(m, anulados, conNombre) {
+  const quedo = m.anulaA || anulados.has(m.id);
+  const al = conNombre ? alumnoPor(m.alumnoId) : null;
+  return '<div class="mov"><div class="' + (anulados.has(m.id) ? 'anulado' : '') + '">' + (al ? '<b>' + esc(al.nombre) + '</b> · ' : '') + esc(m.motivo) + '<small>' + fechaCorta(m.ts) + (anulados.has(m.id) ? ' · deshecho' : '') + '</small></div>' +
+    '<div style="text-align:right"><span class="' + (m.delta >= 0 ? 'pos' : 'neg') + ' ' + (anulados.has(m.id) ? 'anulado' : '') + '">' + (m.delta >= 0 ? '+' : '−') + fmt(Math.abs(m.delta)) + '</span>' +
+    (quedo ? '' : '<br><button class="mini" data-act="deshacer" data-id="' + m.id + '">Deshacer</button>') + '</div></div>';
+}
+function vistaTienda() {
+  const pend = db.compras.filter(c => c.estado === 'pendiente').slice().reverse();
+  let h = '<h1>Tienda</h1><h2>Por canjear (' + pend.length + ')</h2>';
+  h += pend.length ? pend.map(p => { const a = alumnoPor(p.alumnoId); return '<div class="card fila"><span><b>' + esc(a ? a.nombre : '?') + '</b><small class="nota" style="display:block">' + esc(p.nombre) + ' · ' + fechaCorta(p.ts) + '</small></span><button class="ok mini" style="flex:none" data-act="canjear" data-id="' + p.id + '">Canjear</button></div>'; }).join('') : '<p class="nota">No hay compras pendientes.</p>';
+  for (const nivel of ['Bronce', 'Plata', 'Oro']) {
+    h += '<h2>Nivel ' + nivel + '</h2>' + db.catalogo.filter(i => i.nivel === nivel).map(i =>
+      '<div class="card" style="' + (i.activo ? '' : 'opacity:.5') + '"><div class="fila" style="align-items:center"><b>' + esc(i.nombre) + '</b><span class="coin" style="flex:none">' + fmt(i.precio) + '</span></div>' +
+      '<p class="nota">' + esc(i.regla) + '</p><div class="fila"><button class="mini" data-act="editarPrecio" data-id="' + i.id + '">Cambiar precio</button><button class="mini" data-act="toggleItem" data-id="' + i.id + '">' + (i.activo ? 'Desactivar' : 'Activar') + '</button></div></div>').join('');
+  }
+  return h;
+}
+function vistaHistorial() {
+  const todos = db.movimientos.slice().reverse().slice(0, 100);
+  const anulados = new Set(db.movimientos.filter(m => m.anulaA).map(m => m.anulaA));
+  return '<h1>Historial</h1><p class="nota">Últimos 100 movimientos de todo el grupo.</p>' + (todos.map(m => filaMov(m, anulados, true)).join('') || '<p class="nota">Aún no hay movimientos.</p>');
+}
+function vistaMas() {
+  return '<h1>Más</h1><p class="nota">Los datos están guardados solo en este teléfono. Haz un respaldo seguido, sobre todo antes de limpiar el navegador.</p>' +
+    '<div class="lista"><button data-act="exportJSON">Descargar respaldo (JSON)</button><button data-act="exportCSV">Descargar movimientos (CSV para Excel)</button>' +
+    '<button data-act="importar">Restaurar desde un respaldo</button><button data-act="cambiarPw">Cambiar contraseña</button><button class="mal" data-act="salir">Cerrar sesión</button></div>';
+}
+
+/* ---------- Ventanas ---------- */
+function modalMov(tipo) {
+  const a = alumnoPor(ui.alumnoId); if (!a) return;
+  const suma = tipo === 'gano';
+  abrirModal('<h1>' + (suma ? 'Sumar monedas' : 'Restar monedas') + '</h1><p class="nota">' + esc(a.nombre) + ' · saldo ' + fmt(cuenta(a.id).saldo) + '</p>' +
+    '<div class="chips" id="chMontos">' + MONTOS.map(m => '<button data-act="monto" data-v="' + m + '">' + m + '</button>').join('') + '</div>' +
+    '<input id="fMonto" type="number" inputmode="numeric" min="1" placeholder="Otro monto">' +
+    '<div class="chips" id="chMotivos">' + MOTIVOS[tipo].map(m => '<button data-act="motivo" data-v="' + esc(m) + '">' + esc(m) + '</button>').join('') + '</div>' +
+    '<input id="fMotivo" placeholder="Motivo" maxlength="80"><div class="fila" style="margin-top:14px"><button data-act="cerrarModal">Cancelar</button>' +
+    '<button class="' + (suma ? 'ok' : 'mal') + '" data-act="confirmarMov" data-tipo="' + tipo + '">Confirmar</button></div>');
+}
+function modalCompra() {
+  const a = alumnoPor(ui.alumnoId); if (!a) return;
+  abrirModal('<h1>Tienda</h1><p class="nota">' + esc(a.nombre) + ' · saldo <b class="coin">' + fmt(cuenta(a.id).saldo) + '</b></p><div class="lista">' +
+    db.catalogo.filter(i => i.activo).map(i => { const por = motivoNoCompra(a.id, i); return '<button class="fila-al" ' + (por ? 'disabled' : 'data-act="comprarItem" data-id="' + i.id + '"') + '><span><span class="nivel">' + i.nivel + '</span>' + esc(i.nombre) + '<small>' + (por ? esc(por) : esc(i.regla)) + '</small></span><span class="coin">' + fmt(i.precio) + '</span></button>'; }).join('') +
+    '</div><button style="width:100%;margin-top:14px" data-act="cerrarModal">Cerrar</button>');
+}
+function modalAgregar() {
+  abrirModal('<h1>Agregar alumnos</h1><p class="nota">Escribe un nombre o apodo por línea. Puedes pegar la lista completa del grupo.</p>' +
+    '<textarea id="fNombres" placeholder="Ana&#10;Luis&#10;Sofía"></textarea><div class="fila" style="margin-top:14px"><button data-act="cerrarModal">Cancelar</button><button class="pri" data-act="guardarAlumnos">Guardar</button></div>');
+}
+function modalMenuAlumno() {
+  const a = alumnoPor(ui.alumnoId); if (!a) return;
+  abrirModal('<h1>' + esc(a.nombre) + '</h1><div class="lista"><button data-act="editarNombre">Editar nombre</button><button data-act="vincular">' + (a.tarjeta ? 'Cambiar tarjeta NFC' : 'Vincular tarjeta NFC') + '</button>' +
+    '<button data-act="bajaAlumno">' + (a.activo ? 'Dar de baja' : 'Reactivar') + '</button><button data-act="cerrarModal">Cerrar</button></div>');
+}
+function modalVincular() {
+  const a = alumnoPor(ui.alumnoId); if (!a) return;
+  scanMode = { tipo: 'vincular', alumnoId: a.id };
+  abrirModal('<h1>Vincular tarjeta</h1><p class="centro pulso" style="font-size:18px;margin:18px 0">Acerca la tarjeta de <b>' + esc(a.nombre) + '</b> al teléfono…</p>' +
+    '<form data-form="vincularManual"><input name="codigo" placeholder="O escribe el código de la tarjeta"><button>Vincular con código</button></form><button style="width:100%" data-act="cerrarModal">Cancelar</button>');
+  activarNFC();
+}
+function modalTarjetaNueva(id) {
+  const libres = db.alumnos.filter(a => a.activo && !a.tarjeta).sort((x, y) => x.nombre.localeCompare(y.nombre, 'es'));
+  abrirModal('<h1>Tarjeta sin asignar</h1><p class="nota">Esta tarjeta todavía no es de ningún alumno.</p>' + (libres.length ?
+    '<select id="fAlumno">' + libres.map(a => '<option value="' + a.id + '">' + esc(a.nombre) + '</option>').join('') + '</select><div class="fila" style="margin-top:14px"><button data-act="cerrarModal">Cancelar</button><button class="pri" data-act="asignarSel" data-tarjeta="' + esc(id) + '">Asignar</button></div>' :
+    '<p>No hay alumnos sin tarjeta. Agrega alumnos primero.</p><button style="width:100%" data-act="cerrarModal">Cerrar</button>'));
+}
+
+/* ---------- Acciones ---------- */
+function descargar(nombre, tipo, texto) {
+  const url = URL.createObjectURL(new Blob([texto], { type: tipo }));
+  const a = document.createElement('a'); a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+const hoy = () => new Date().toISOString().slice(0, 10);
+function csvMovimientos() {
+  const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+  const anulados = new Set(db.movimientos.filter(m => m.anulaA).map(m => m.anulaA));
+  const filas = [['Fecha', 'Alumno', 'Tipo', 'Monedas', 'Motivo', 'Estado']];
+  for (const m of db.movimientos) {
+    const a = alumnoPor(m.alumnoId);
+    filas.push([new Date(m.ts).toLocaleString('es-MX'), a ? a.nombre : '?', m.tipo, m.delta, m.motivo, m.anulaA ? 'corrección' : (anulados.has(m.id) ? 'deshecho' : 'vigente')]);
+  }
+  return '\ufeff' + filas.map(f => f.map(q).join(',')).join('\r\n');
+}
+function actualizarSeleccion(contenedor, boton) {
+  document.querySelectorAll(contenedor + ' button').forEach(b => b.classList.remove('sel')); boton.classList.add('sel');
+}
+const A = {
+  tab: d => { ui.tab = d.tab; render(); window.scrollTo(0, 0); },
+  nfc: async () => { if (await activarNFC()) { scanMode = { tipo: 'buscar' }; render(); } },
+  abrir: d => { ui.alumnoId = d.id; render(); window.scrollTo(0, 0); },
+  cerrarFicha: () => { ui.alumnoId = null; render(); },
+  cerrarModal: () => cerrarModal(),
+  sumar: () => modalMov('gano'),
+  restar: () => modalMov('perdio'),
+  comprar: () => modalCompra(),
+  monto: (d, el) => { $('#fMonto').value = d.v; actualizarSeleccion('#chMontos', el); },
+  motivo: (d, el) => { $('#fMotivo').value = d.v; actualizarSeleccion('#chMotivos', el); },
+  confirmarMov: d => {
+    const err = registrar(ui.alumnoId, d.tipo, parseInt($('#fMonto').value, 10), $('#fMotivo').value);
+    if (err) { aviso(err); return; }
+    cerrarModal(); render(); aviso(d.tipo === 'gano' ? 'Monedas sumadas.' : 'Monedas restadas.');
+  },
+  comprarItem: d => {
+    const item = db.catalogo.find(i => i.id === d.id);
+    if (!item || !confirm('¿Registrar la compra de "' + item.nombre + '" por ' + fmt(item.precio) + ' monedas?')) return;
+    const err = comprar(ui.alumnoId, d.id);
+    if (err) { aviso(err); return; }
+    cerrarModal(); render(); aviso('Compra registrada. Queda por canjear.');
+  },
+  canjear: d => { if (canjear(d.id)) { render(); aviso('Canjeado.'); } },
+  deshacer: d => {
+    if (!confirm('¿Deshacer este movimiento? Quedará registrada una corrección.')) return;
+    const err = deshacerMov(d.id); if (err) aviso(err); else { render(); aviso('Movimiento deshecho.'); }
+  },
+  agregarAlumnos: () => modalAgregar(),
+  guardarAlumnos: () => {
+    const nombres = $('#fNombres').value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!nombres.length) { aviso('Escribe al menos un nombre.'); return; }
+    for (const n of nombres) db.alumnos.push({ id: uid(), nombre: n.slice(0, 60), tarjeta: null, codigo: codigoAcceso(), activo: true, creado: Date.now() });
+    guardar(); cerrarModal(); render(); aviso(nombres.length + ' alumno(s) agregado(s).');
+  },
+  menuAlumno: () => modalMenuAlumno(),
+  editarNombre: () => {
+    const a = alumnoPor(ui.alumnoId); const n = prompt('Nombre del alumno', a.nombre);
+    if (n && n.trim()) { a.nombre = n.trim().slice(0, 60); guardar(); cerrarModal(); render(); }
+  },
+  vincular: () => modalVincular(),
+  bajaAlumno: () => { const a = alumnoPor(ui.alumnoId); a.activo = !a.activo; guardar(); cerrarModal(); render(); },
+  asignarSel: d => asignarTarjeta($('#fAlumno').value, d.tarjeta),
+  editarPrecio: d => {
+    const i = db.catalogo.find(x => x.id === d.id); const v = parseInt(prompt('Nuevo precio de "' + i.nombre + '"', i.precio), 10);
+    if (Number.isInteger(v) && v > 0) { i.precio = v; guardar(); render(); } else if (!isNaN(v)) aviso('Precio no válido.');
+  },
+  toggleItem: d => { const i = db.catalogo.find(x => x.id === d.id); i.activo = !i.activo; guardar(); render(); },
+  exportJSON: () => descargar('banco-de-clase-' + hoy() + '.json', 'application/json', JSON.stringify(db, null, 1)),
+  exportCSV: () => descargar('movimientos-' + hoy() + '.csv', 'text/csv;charset=utf-8', csvMovimientos()),
+  importar: () => { const f = document.createElement('input'); f.type = 'file'; f.accept = '.json,application/json'; f.onchange = () => leerRespaldo(f.files[0]); f.click(); },
+  cambiarPw: async () => {
+    const p = prompt('Nueva contraseña (mínimo 6 caracteres)'); if (!p) return;
+    if (p.length < 6) { aviso('Debe tener al menos 6 caracteres.'); return; }
+    const sal = uid(); db.auth = { sal, hash: await hashPw(p, sal) }; guardar(); aviso('Contraseña cambiada.');
+  },
+  salir: () => { setSesion(false); ui.alumnoId = null; render(); }
+};
+function leerRespaldo(archivo) {
+  if (!archivo) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!Array.isArray(d.alumnos) || !Array.isArray(d.movimientos) || !Array.isArray(d.catalogo) || !Array.isArray(d.compras)) throw new Error('formato');
+      if (!confirm('Esto reemplaza todos los datos actuales por los del respaldo. ¿Continuar?')) return;
+      db = Object.assign(datosIniciales(), d, { auth: db.auth }); guardar(); ui.alumnoId = null; render(); aviso('Respaldo restaurado.');
+    } catch (e) { aviso('El archivo no es un respaldo válido.'); }
+  };
+  r.readAsText(archivo);
+}
+const FORMAS = {
+  config: async f => {
+    const pw = f.pw.value; if (pw.length < 6) { aviso('Mínimo 6 caracteres.'); return; }
+    if (pw !== f.pw2.value) { aviso('Las contraseñas no coinciden.'); return; }
+    const sal = uid(); db.auth = { sal, hash: await hashPw(pw, sal) }; guardar(); setSesion(true); render();
+  },
+  login: async f => {
+    if (await hashPw(f.pw.value, db.auth.sal) === db.auth.hash) { setSesion(true); render(); } else aviso('Contraseña incorrecta.');
+  },
+  manual: f => {
+    const q = f.q.value.trim(); if (!q) return;
+    const porTarjeta = db.alumnos.find(a => a.tarjeta === normId(q));
+    const porNombre = db.alumnos.filter(a => a.nombre.toLowerCase().includes(q.toLowerCase()));
+    const hallado = porTarjeta || (porNombre.length === 1 ? porNombre[0] : null);
+    if (hallado) { ui.alumnoId = hallado.id; render(); window.scrollTo(0, 0); }
+    else if (porNombre.length) { ui.tab = 'alumnos'; render(); const b = $('#buscar'); if (b) { b.value = q; filtrarAlumnos(q); } }
+    else aviso('No se encontró ningún alumno.');
+  },
+  vincularManual: f => { const id = normId(f.codigo.value); if (id) asignarTarjeta(scanMode.alumnoId, id); }
+};
+function filtrarAlumnos(q) {
+  const t = q.trim().toLowerCase();
+  document.querySelectorAll('#listaAl [data-n]').forEach(b => b.classList.toggle('oculto', t && !b.dataset.n.includes(t)));
+}
+function iniciar() {
+  document.addEventListener('click', e => { const t = e.target.closest('[data-act]'); if (t && A[t.dataset.act]) A[t.dataset.act](t.dataset, t); });
+  document.addEventListener('submit', e => {
+    e.preventDefault(); const f = e.target.dataset.form;
+    if (FORMAS[f]) Promise.resolve().then(() => FORMAS[f](e.target)).catch(err => aviso('Error: ' + (err && err.message ? err.message : err)));
+  });
+  document.addEventListener('input', e => { if (e.target.id === 'buscar') filtrarAlumnos(e.target.value); });
+  render();
+}
+if (typeof window === 'undefined') globalThis.__api = { FORMAS, sesion, render, db: () => db, reset: () => { db = datosIniciales(); }, addMov, cuenta, registrar, deshacerMov, comprar, canjear, motivoNoCompra, csvMovimientos, uid };
+else iniciar();
+</script>
+</body>
+</html>
