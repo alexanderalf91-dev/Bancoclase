@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#0f1730">
+<title>Mi cuenta · Banco de Clase</title>
+<style>
+:root{--bg:#0f1730;--card:#1a2547;--card2:#223060;--txt:#eef1ff;--mut:#9aa6d1;--oro:#ffc83d;--ok:#2ecc8f;--mal:#ff5d6c;--pri:#5b7cff;--r:16px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font:17px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;padding:18px 16px 40px}
+h1{font-size:15px;color:var(--mut);margin:0;font-weight:600}
+h2{font-size:14px;color:var(--mut);margin:26px 0 8px;text-transform:uppercase;letter-spacing:.05em}
+.nombre{font-size:26px;font-weight:800;margin:2px 0 0}
+.saldo{text-align:center;padding:22px 0 6px}
+.saldo .num{font-size:68px;font-weight:800;color:var(--oro);line-height:1}
+.saldo .et{color:var(--mut);margin-top:4px}
+.tres{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
+.tres div{background:var(--card);border-radius:var(--r);padding:12px 6px;text-align:center}
+.tres b{display:block;font-size:21px}.tres span{font-size:12px;color:var(--mut)}
+.pos{color:var(--ok)}.neg{color:var(--mal)}
+.card{background:var(--card);border-radius:var(--r);padding:14px;margin:8px 0}
+.mov{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--card2)}
+.mov:last-child{border-bottom:0}
+.mov small{display:block;color:var(--mut);font-size:13px}
+.mov .monto{font-weight:700;white-space:nowrap}
+.tachado{text-decoration:line-through;opacity:.5}
+.nivel{font-size:12px;padding:2px 8px;border-radius:99px;background:var(--card2);color:var(--mut);margin-right:6px}
+.barra{height:8px;border-radius:99px;background:var(--card2);margin:10px 0 6px;overflow:hidden}
+.barra i{display:block;height:100%;background:var(--pri);border-radius:99px}
+.barra i.listo{background:var(--ok)}
+.item .fila{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.coin{color:var(--oro);font-weight:700;white-space:nowrap}
+.regla{color:var(--mut);font-size:14px;margin:6px 0 0}
+.estado{font-size:14px}
+.cupon{border:2px dashed var(--oro);background:#2a2440}
+button,.btn{font:inherit;color:inherit;border:0;border-radius:var(--r);padding:12px 16px;background:var(--card2);min-height:48px;cursor:pointer}
+button.pri{background:var(--pri);font-weight:700}
+input{font:inherit;color:var(--txt);background:var(--card);border:2px solid var(--card2);border-radius:var(--r);padding:12px;width:100%;min-height:48px;text-transform:uppercase;letter-spacing:.12em;text-align:center}
+.centro{text-align:center}.nota{color:var(--mut);font-size:14px}
+.pie{margin-top:28px;display:flex;gap:10px;align-items:center;justify-content:space-between}
+.pie p{margin:0}
+form{display:grid;gap:10px;margin:18px 0}
+.vacio{padding:40px 0;text-align:center}
+</style>
+</head>
+<body>
+<main id="app"><p class="nota centro">Cargando…</p></main>
+<script src="config.js"></script>
+<script>
+'use strict';
+/* Página del alumno: solo lectura. El enlace de la tarjeta lleva su código personal después del "#". */
+const CFG = window.CONFIG || {};
+const CLAVE_LOCAL = 'bc.codigo';
+let codigo = '', datos = null, ultimaCarga = 0, sinRed = false, error = '';
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = n => Number(n || 0).toLocaleString('es-MX');
+const fecha = ts => new Date(ts).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+const app = () => document.getElementById('app');
+
+function leerCodigo() {
+  let h = '';
+  try { h = decodeURIComponent(location.hash.replace(/^#/, '')); } catch (e) { }
+  h = h.trim().toUpperCase();
+  if (h) return h;
+  try { return (localStorage.getItem(CLAVE_LOCAL) || '').toUpperCase(); } catch (e) { return ''; }
+}
+function recordar(c) { try { localStorage.setItem(CLAVE_LOCAL, c); } catch (e) { } }
+
+async function cargar() {
+  if (!CFG.url || !CFG.key || CFG.url.includes('TU-PROYECTO')) { error = 'config'; pintar(); return; }
+  if (!codigo) { pintar(); return; }
+  try {
+    const r = await fetch(CFG.url + '/rest/v1/rpc/ver_cuenta', {
+      method: 'POST', headers: { apikey: CFG.key, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_codigo: codigo })
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    const d = await r.json();
+    sinRed = false;
+    if (!d) { datos = null; error = 'noencontrado'; }
+    else { datos = d; error = ''; ultimaCarga = Date.now(); recordar(codigo); }
+  } catch (e) { sinRed = true; if (!datos) error = 'red'; }
+  pintar();
+}
+
+function pintar() {
+  if (error === 'config') { app().innerHTML = '<div class="vacio"><h1>Banco de Clase</h1><p>Esta página todavía no está lista. Avisa a tu maestro.</p></div>'; return; }
+  if (!codigo) {
+    app().innerHTML = '<h1>Banco de Clase</h1><p class="nombre">Mi cuenta</p><p class="nota">Acerca tu tarjeta a un celular con NFC, o escribe tu código personal.</p>' +
+      '<form id="fCodigo"><input id="inCodigo" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" maxlength="24"><button class="pri">Ver mi cuenta</button></form>';
+    document.getElementById('fCodigo').onsubmit = e => { e.preventDefault(); const c = document.getElementById('inCodigo').value.trim().toUpperCase(); if (c) { codigo = c; error = ''; try { history.replaceState(null, '', '#' + c); } catch (x) { } cargar(); } };
+    return;
+  }
+  if (error === 'noencontrado') {
+    app().innerHTML = '<div class="vacio"><h1>Banco de Clase</h1><p class="nombre">No encontré tu cuenta</p><p class="nota">Revisa tu código o pide a tu maestro que grabe de nuevo tu tarjeta.</p><button id="otro">Escribir otro código</button></div>';
+    document.getElementById('otro').onclick = () => { codigo = ''; error = ''; try { localStorage.removeItem(CLAVE_LOCAL); history.replaceState(null, '', location.pathname); } catch (e) { } pintar(); };
+    return;
+  }
+  if (!datos) {
+    app().innerHTML = '<div class="vacio"><h1>Banco de Clase</h1><p>No pude conectarme. Revisa tu internet.</p><button class="pri" id="reint">Intentar de nuevo</button></div>';
+    document.getElementById('reint').onclick = cargar; return;
+  }
+  const d = datos, saldo = d.saldo || 0;
+  const movs = Array.isArray(d.movimientos) ? d.movimientos : [];
+  const compras = (Array.isArray(d.compras) ? d.compras : []).filter(c => c.e === 'pendiente');
+  const tienda = (Array.isArray(d.tienda) ? d.tienda : []).slice().sort((a, b) => a.precio - b.precio);
+
+  let h = '<h1>Banco de Clase</h1><p class="nombre">' + esc(d.nombre) + '</p>' +
+    '<div class="saldo"><div class="num">' + fmt(saldo) + '</div><div class="et">monedas</div></div>' +
+    '<div class="tres"><div><b class="pos">' + fmt(d.ganado) + '</b><span>ganado</span></div><div><b class="neg">' + fmt(d.perdido) + '</b><span>perdido</span></div><div><b>' + fmt(d.gastado) + '</b><span>gastado</span></div></div>';
+
+  if (compras.length) {
+    h += '<h2>Por canjear</h2>' + compras.map(c => '<div class="card cupon"><div class="item"><div class="fila" style="display:flex;justify-content:space-between;gap:10px"><b>' + esc(c.n) + '</b><span class="coin">' + fmt(c.p) + '</span></div><p class="regla">Enséñale esta pantalla a tu maestro para canjearlo.</p></div></div>').join('');
+  }
+
+  h += '<h2>Mis movimientos</h2><div class="card">' + (movs.length ? movs.map(m => {
+    const u = m.u ? ' tachado' : '';
+    return '<div class="mov"><div class="' + u.trim() + '">' + esc(m.m) + '<small>' + fecha(m.t) + (m.u ? ' · deshecho' : '') + '</small></div><div class="monto ' + (m.d >= 0 ? 'pos' : 'neg') + u + '">' + (m.d >= 0 ? '+' : '−') + fmt(Math.abs(m.d)) + '</div></div>';
+  }).join('') : '<p class="nota centro">Todavía no tienes movimientos.</p>') + '</div>';
+
+  if (tienda.length) {
+    h += '<h2>Tienda de Power-Ups</h2>' + tienda.map(i => {
+      const alcanza = saldo >= i.precio, pct = Math.max(0, Math.min(100, Math.round(saldo / i.precio * 100)));
+      return '<div class="card item"><div class="fila"><span><span class="nivel">' + esc(i.nivel) + '</span><b>' + esc(i.nombre) + '</b></span><span class="coin">' + fmt(i.precio) + '</span></div>' +
+        '<div class="barra"><i class="' + (alcanza ? 'listo' : '') + '" style="width:' + pct + '%"></i></div>' +
+        '<div class="estado ' + (alcanza ? 'pos' : 'nota') + '">' + (alcanza ? '¡Te alcanza!' : 'Te faltan ' + fmt(i.precio - saldo)) + '</div><p class="regla">' + esc(i.regla) + '</p></div>';
+    }).join('');
+  }
+
+  h += '<div class="pie"><p class="nota">' + (sinRed ? 'Sin conexión. Mostrando lo último que vi.' : 'Actualizado a las ' + new Date(ultimaCarga).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })) + '</p><button id="refrescar">Actualizar</button></div>';
+  app().innerHTML = h;
+  document.getElementById('refrescar').onclick = cargar;
+}
+
+window.addEventListener('hashchange', () => { const c = leerCodigo(); if (c && c !== codigo) { codigo = c; datos = null; error = ''; cargar(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && codigo && Date.now() - ultimaCarga > 15000) cargar(); });
+setInterval(() => { if (!document.hidden && codigo) cargar(); }, 45000);
+codigo = leerCodigo();
+pintar(); cargar();
+</script>
+</body>
+</html>
