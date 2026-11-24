@@ -66,6 +66,7 @@ nav button.act{color:var(--oro);font-weight:700}
 <div id="app"></div>
 <div id="modal"></div>
 <div id="toast"></div>
+<script src="config.js"></script>
 <script>
 'use strict';
 /* ===== Banco de Clase · app del docente · versión local (etapas 1 a 3 y 5) =====
@@ -107,6 +108,7 @@ function cargar() {
 function guardar() {
   try { localStorage.setItem(KEY, JSON.stringify(db)); }
   catch (e) { aviso('No se pudo guardar en este teléfono. Exporta un respaldo ya.'); }
+  programarNube();
 }
 
 /* ---------- Utilidades ---------- */
@@ -211,8 +213,88 @@ function canjear(compraId) {
   c.estado = 'canjeado'; c.canjeTs = Date.now(); guardar(); return true;
 }
 
+/* ---------- Nube (Supabase) ----------
+   La app sigue funcionando sin internet: guarda en el teléfono y, cuando hay conexión,
+   envía una copia de las cuentas a la nube para que el alumno la consulte. Solo tú escribes. */
+const CFG = globalThis.CONFIG || {};
+const nubeLista = () => !!(CFG.url && CFG.key && !String(CFG.url).includes('TU-PROYECTO'));
+const NK = 'bancoClase.nube';
+const nube = { sesion: null, pendiente: false, ultima: null, error: null };
+let tNube = null, nubeEnVuelo = false;
+function leerSesionNube() { try { return JSON.parse(localStorage.getItem(NK) || 'null'); } catch (e) { return null; } }
+function guardarSesionNube(s) { try { s ? localStorage.setItem(NK, JSON.stringify(s)) : localStorage.removeItem(NK); } catch (e) { } }
+async function nubeLogin(email, pw) {
+  const r = await fetch(CFG.url + '/auth/v1/token?grant_type=password', { method: 'POST', headers: { apikey: CFG.key, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: pw }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error_description || j.msg || 'No se pudo iniciar sesión en la nube.');
+  nube.sesion = { access: j.access_token, refresh: j.refresh_token, exp: Date.now() + Math.max(60, (j.expires_in || 3600) - 60) * 1000, email };
+  guardarSesionNube(nube.sesion);
+}
+async function tokenNube() {
+  const s = nube.sesion; if (!s) throw new Error('Sin sesión en la nube.');
+  if (Date.now() < s.exp) return s.access;
+  const r = await fetch(CFG.url + '/auth/v1/token?grant_type=refresh_token', { method: 'POST', headers: { apikey: CFG.key, 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: s.refresh }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { nube.sesion = null; guardarSesionNube(null); throw new Error('La sesión de la nube venció. Vuelve a conectarte en Más.'); }
+  nube.sesion = { access: j.access_token, refresh: j.refresh_token, exp: Date.now() + Math.max(60, (j.expires_in || 3600) - 60) * 1000, email: s.email };
+  guardarSesionNube(nube.sesion); return nube.sesion.access;
+}
+function snapshotNube() {
+  const filas = db.alumnos.filter(a => a.activo).map(a => {
+    const c = cuenta(a.id);
+    return {
+      codigo: a.codigo, nombre: a.nombre, saldo: c.saldo, ganado: c.ganado, perdido: c.perdido, gastado: c.gastado,
+      movimientos: movimientosDe(a.id).slice(0, 100).map(m => ({ id: m.id, t: m.ts, d: m.delta, m: m.motivo, k: m.tipo, u: c.anulados.has(m.id) ? 1 : 0 })),
+      compras: db.compras.filter(x => x.alumnoId === a.id && x.estado !== 'anulada').slice(-30).reverse().map(x => ({ n: x.nombre, p: x.precio, e: x.estado, t: x.ts })),
+      actualizado: new Date().toISOString()
+    };
+  });
+  const tienda = db.catalogo.filter(i => i.activo).map(i => ({ id: i.id, nivel: i.nivel, nombre: i.nombre, precio: i.precio, regla: i.regla }));
+  return { filas, tienda };
+}
+async function enviarNube() {
+  const tk = await tokenNube();
+  const h = { apikey: CFG.key, Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' };
+  const { filas, tienda } = snapshotNube();
+  const ok = async (r, que) => { if (!r.ok) { let t = ''; try { t = (await r.json()).message || ''; } catch (e) { } throw new Error(que + ' (' + r.status + ') ' + t); } };
+  if (filas.length) await ok(await fetch(CFG.url + '/rest/v1/cuentas?on_conflict=codigo', { method: 'POST', headers: { ...h, Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(filas) }), 'No se pudieron enviar las cuentas');
+  const filtro = filas.length ? 'codigo=not.in.(' + filas.map(f => f.codigo).join(',') + ')' : 'codigo=neq.-';
+  await ok(await fetch(CFG.url + '/rest/v1/cuentas?' + filtro, { method: 'DELETE', headers: { ...h, Prefer: 'return=minimal' } }), 'No se pudo limpiar la nube');
+  await ok(await fetch(CFG.url + '/rest/v1/tienda?on_conflict=id', { method: 'POST', headers: { ...h, Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([{ id: 1, items: tienda, actualizado: new Date().toISOString() }]) }), 'No se pudo enviar la tienda');
+}
+function programarNube() {
+  if (!nubeLista() || !nube.sesion) return;
+  nube.pendiente = true; pintarEstadoNube();
+  clearTimeout(tNube); tNube = setTimeout(sincronizar, 1200);
+}
+async function sincronizar() {
+  if (!nubeLista() || !nube.sesion) return;
+  if (nubeEnVuelo) { programarNube(); return; }
+  nubeEnVuelo = true; nube.pendiente = false;
+  try { await enviarNube(); nube.ultima = Date.now(); nube.error = null; }
+  catch (e) {
+    nube.error = (e && e.message) || 'Sin conexión'; nube.pendiente = true;
+    if (nube.sesion) { clearTimeout(tNube); tNube = setTimeout(sincronizar, 15000); }
+  } finally { nubeEnVuelo = false; pintarEstadoNube(); }
+}
+function textoNube() {
+  if (!nubeLista()) return 'Nube sin configurar';
+  if (!nube.sesion) return 'Nube sin conectar';
+  if (nube.error) return 'Nube: ' + nube.error + ' · reintentando';
+  if (nube.pendiente) return 'Nube: enviando…';
+  return nube.ultima ? 'Nube al día · ' + new Date(nube.ultima).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : 'Nube conectada';
+}
+function pintarEstadoNube() {
+  if (typeof document === 'undefined' || !document.querySelectorAll) return;
+  document.querySelectorAll('.estadoNube').forEach(e => { e.textContent = textoNube(); });
+}
+function urlAlumno(a) {
+  const base = CFG.alumnoUrl || new URL('alumno.html', location.href).href;
+  return base.split('#')[0] + '#' + a.codigo;
+}
+
 /* ---------- NFC ---------- */
-let nfcCtl = null, scanMode = { tipo: 'buscar' }, modalAbierto = false;
+let nfcCtl = null, escCtl = null, scanMode = { tipo: 'buscar' }, modalAbierto = false;
 async function activarNFC() {
   if (!('NDEFReader' in window)) { aviso('Este navegador no lee NFC. Usa Chrome en un Android con NFC.'); return false; }
   if (nfcCtl) return true;
@@ -220,7 +302,7 @@ async function activarNFC() {
     const lector = new NDEFReader(); const ctl = new AbortController();
     await lector.scan({ signal: ctl.signal });
     nfcCtl = ctl;
-    lector.onreading = e => { if (navigator.vibrate) navigator.vibrate(60); alLeerTarjeta(normId(e.serialNumber)); };
+    lector.onreading = e => { if (navigator.vibrate) navigator.vibrate(60); alLeerTarjeta(normId(e.serialNumber), codigoDeMensaje(e.message)); };
     lector.onreadingerror = () => aviso('No se pudo leer la tarjeta. Intenta de nuevo.');
     return true;
   } catch (err) {
@@ -228,13 +310,45 @@ async function activarNFC() {
     return false;
   }
 }
-function alLeerTarjeta(id) {
-  if (!id) { aviso('La tarjeta no entregó un código. Prueba con otra.'); return; }
-  if (scanMode.tipo === 'vincular') { asignarTarjeta(scanMode.alumnoId, id); return; }
+// Si la tarjeta ya tiene grabado el enlace del alumno, saca el código que va después del "#".
+function codigoDeMensaje(msg) {
+  try {
+    for (const rec of (msg && msg.records) || []) {
+      if (rec.recordType !== 'url' && rec.recordType !== 'text') continue;
+      const txt = new TextDecoder(rec.encoding || 'utf-8').decode(rec.data);
+      const m = txt.match(/#([A-Za-z0-9]{6,24})/);
+      if (m) return m[1].toUpperCase();
+    }
+  } catch (e) { }
+  return null;
+}
+function alLeerTarjeta(id, codigo) {
+  if (!id && !codigo) { aviso('La tarjeta no entregó un código. Prueba con otra.'); return; }
+  if (scanMode.tipo === 'vincular') { if (id) asignarTarjeta(scanMode.alumnoId, id); return; }
   if (modalAbierto) return;
-  const a = db.alumnos.find(x => x.tarjeta === id);
-  if (a) { ui.alumnoId = a.id; render(); window.scrollTo(0, 0); }
-  else modalTarjetaNueva(id);
+  const a = (id && db.alumnos.find(x => x.tarjeta === id)) || (codigo && db.alumnos.find(x => x.codigo === codigo));
+  if (a) {
+    if (!a.tarjeta && id) { a.tarjeta = id; guardar(); }
+    ui.alumnoId = a.id; render(); window.scrollTo(0, 0);
+  } else modalTarjetaNueva(id);
+}
+// Graba en la tarjeta el enlace personal del alumno: al escanearla con cualquier celular se abre su cuenta.
+async function escribirTarjeta(alumnoId) {
+  const a = alumnoPor(alumnoId); if (!a) return;
+  const url = urlAlumno(a);
+  if (!/^https:\/\//i.test(url)) { aviso('Publica primero las páginas en una dirección https para grabar la tarjeta.'); return; }
+  if (!('NDEFReader' in window)) { aviso('Este navegador no escribe NFC. Usa Chrome en Android.'); return; }
+  const estabaLeyendo = !!nfcCtl;
+  if (nfcCtl) { nfcCtl.abort(); nfcCtl = null; }
+  abrirModal('<h1>Grabar tarjeta</h1><p class="centro pulso" style="font-size:18px;margin:18px 0">Acerca la tarjeta de <b>' + esc(a.nombre) + '</b> al teléfono y no la muevas…</p><p class="nota" style="word-break:break-all">' + esc(url) + '</p><button style="width:100%;margin-top:14px" data-act="cerrarModal">Cancelar</button>');
+  try {
+    const w = new NDEFReader(); escCtl = new AbortController();
+    await w.write({ records: [{ recordType: 'url', data: url }] }, { signal: escCtl.signal });
+    escCtl = null; cerrarModal(); aviso('Tarjeta grabada. Pruébala acercándola otra vez.');
+  } catch (err) {
+    escCtl = null;
+    if (err && err.name !== 'AbortError') { cerrarModal(); aviso(err.name === 'NotAllowedError' ? 'Permiso de NFC denegado.' : 'No se pudo grabar. Mantén la tarjeta quieta e inténtalo de nuevo.'); }
+  } finally { if (estabaLeyendo) activarNFC(); }
 }
 function asignarTarjeta(alumnoId, id) {
   const otro = db.alumnos.find(x => x.tarjeta === id && x.id !== alumnoId);
@@ -247,7 +361,7 @@ function asignarTarjeta(alumnoId, id) {
 /* ---------- Interfaz ---------- */
 const ui = { tab: 'escanear', alumnoId: null };
 function abrirModal(html) { modalAbierto = true; $('#modal').innerHTML = '<div class="velo"><div class="hoja">' + html + '</div></div>'; }
-function cerrarModal() { modalAbierto = false; $('#modal').innerHTML = ''; if (scanMode.tipo === 'vincular') scanMode = { tipo: 'buscar' }; }
+function cerrarModal() { if (escCtl) { escCtl.abort(); escCtl = null; } modalAbierto = false; $('#modal').innerHTML = ''; if (scanMode.tipo === 'vincular') scanMode = { tipo: 'buscar' }; }
 
 function render() {
   const raiz = $('#app');
@@ -277,7 +391,7 @@ function vistaEscanear() {
     '<button class="grande ' + (nfcCtl ? 'ok' : 'pri') + '" data-act="nfc">' + (nfcCtl ? 'Lector activo: acerca una tarjeta' : 'Activar lector NFC') + '</button>' +
     '<p class="nota centro">' + (nfcCtl ? 'Acerca la tarjeta a la parte trasera del teléfono.' : 'Toca el botón y luego acerca la tarjeta de un alumno.') + '</p>' +
     '<h2>Sin NFC</h2><form data-form="manual"><input name="q" placeholder="Código de tarjeta o nombre del alumno"><button>Buscar</button></form>' +
-    '<h2>Resumen</h2><div class="tres"><div><b>' + db.alumnos.length + '</b><span>alumnos</span></div><div><b>' + fmt(total) + '</b><span>monedas</span></div><div><b>' + pend + '</b><span>por canjear</span></div></div>';
+    '<p class="nota centro estadoNube" style="margin-top:14px">' + esc(textoNube()) + '</p><h2>Resumen</h2><div class="tres"><div><b>' + db.alumnos.length + '</b><span>alumnos</span></div><div><b>' + fmt(total) + '</b><span>monedas</span></div><div><b>' + pend + '</b><span>por canjear</span></div></div>';
 }
 function vistaAlumnos() {
   const lista = db.alumnos.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
@@ -325,9 +439,16 @@ function vistaHistorial() {
   return '<h1>Historial</h1><p class="nota">Últimos 100 movimientos de todo el grupo.</p>' + (todos.map(m => filaMov(m, anulados, true)).join('') || '<p class="nota">Aún no hay movimientos.</p>');
 }
 function vistaMas() {
-  return '<h1>Más</h1><p class="nota">Los datos están guardados solo en este teléfono. Haz un respaldo seguido, sobre todo antes de limpiar el navegador.</p>' +
+  return '<h1>Más</h1>' + bloqueNube() + '<h2>Respaldo</h2><p class="nota">Tus datos se guardan en este teléfono. Haz un respaldo seguido, sobre todo antes de limpiar el navegador.</p>' +
     '<div class="lista"><button data-act="exportJSON">Descargar respaldo (JSON)</button><button data-act="exportCSV">Descargar movimientos (CSV para Excel)</button>' +
     '<button data-act="importar">Restaurar desde un respaldo</button><button data-act="cambiarPw">Cambiar contraseña</button><button class="mal" data-act="salir">Cerrar sesión</button></div>';
+}
+
+function bloqueNube() {
+  if (!nubeLista()) return '<h2>Nube</h2><p class="nota">Aún no está configurada: falta llenar config.js con los datos de Supabase.</p>';
+  if (!nube.sesion) return '<h2>Nube</h2><p class="nota">Conéctate para que cada alumno vea su cuenta al escanear su tarjeta. Usa el correo y la contraseña del usuario docente que creaste en Supabase.</p>' +
+    '<form data-form="nube"><input name="email" type="email" placeholder="Correo del docente (Supabase)" autocomplete="username" required><input name="pw" type="password" placeholder="Contraseña de Supabase" autocomplete="current-password" required><button class="pri">Conectar</button></form>';
+  return '<h2>Nube</h2><p class="nota estadoNube">' + esc(textoNube()) + '</p><div class="lista"><button data-act="nubeSync">Sincronizar ahora</button><button data-act="nubeSalir">Desconectar nube</button></div>';
 }
 
 /* ---------- Ventanas ---------- */
@@ -353,7 +474,9 @@ function modalAgregar() {
 }
 function modalMenuAlumno() {
   const a = alumnoPor(ui.alumnoId); if (!a) return;
-  abrirModal('<h1>' + esc(a.nombre) + '</h1><div class="lista"><button data-act="editarNombre">Editar nombre</button><button data-act="vincular">' + (a.tarjeta ? 'Cambiar tarjeta NFC' : 'Vincular tarjeta NFC') + '</button>' +
+  abrirModal('<h1>' + esc(a.nombre) + '</h1><div class="lista"><button class="pri" data-act="escribir">Grabar enlace en la tarjeta</button>' +
+    '<button data-act="copiarEnlace">Copiar enlace del alumno</button><button data-act="vincular">' + (a.tarjeta ? 'Cambiar tarjeta ya grabada' : 'Vincular tarjeta ya grabada') + '</button>' +
+    '<button data-act="editarNombre">Editar nombre</button><button data-act="regenerar">Cambiar código de acceso</button>' +
     '<button data-act="bajaAlumno">' + (a.activo ? 'Dar de baja' : 'Reactivar') + '</button><button data-act="cerrarModal">Cerrar</button></div>');
 }
 function modalVincular() {
@@ -431,6 +554,18 @@ const A = {
     if (n && n.trim()) { a.nombre = n.trim().slice(0, 60); guardar(); cerrarModal(); render(); }
   },
   vincular: () => modalVincular(),
+  escribir: () => { const id = ui.alumnoId; cerrarModal(); escribirTarjeta(id); },
+  copiarEnlace: async () => {
+    const a = alumnoPor(ui.alumnoId); const url = urlAlumno(a);
+    try { await navigator.clipboard.writeText(url); aviso('Enlace copiado.'); } catch (e) { prompt('Copia el enlace del alumno', url); }
+  },
+  regenerar: () => {
+    const a = alumnoPor(ui.alumnoId);
+    if (!confirm('Se creará un código nuevo para ' + a.nombre + '. La tarjeta y el enlace anteriores dejarán de funcionar y tendrás que grabar la tarjeta otra vez. ¿Continuar?')) return;
+    a.codigo = codigoAcceso(); guardar(); cerrarModal(); render(); aviso('Código nuevo. Graba la tarjeta de nuevo.');
+  },
+  nubeSync: async () => { aviso('Sincronizando…'); await sincronizar(); aviso(nube.error ? 'No se pudo sincronizar: ' + nube.error : 'Nube al día.'); },
+  nubeSalir: () => { nube.sesion = null; guardarSesionNube(null); render(); aviso('Nube desconectada.'); },
   bajaAlumno: () => { const a = alumnoPor(ui.alumnoId); a.activo = !a.activo; guardar(); cerrarModal(); render(); },
   asignarSel: d => asignarTarjeta($('#fAlumno').value, d.tarjeta),
   editarPrecio: d => {
@@ -479,6 +614,11 @@ const FORMAS = {
     else if (porNombre.length) { ui.tab = 'alumnos'; render(); const b = $('#buscar'); if (b) { b.value = q; filtrarAlumnos(q); } }
     else aviso('No se encontró ningún alumno.');
   },
+  nube: async f => {
+    try { await nubeLogin(f.email.value.trim(), f.pw.value); }
+    catch (e) { aviso(e.message || 'No se pudo conectar.'); return; }
+    render(); aviso('Conectado a la nube.'); sincronizar();
+  },
   vincularManual: f => { const id = normId(f.codigo.value); if (id) asignarTarjeta(scanMode.alumnoId, id); }
 };
 function filtrarAlumnos(q) {
@@ -492,10 +632,15 @@ function iniciar() {
     if (FORMAS[f]) Promise.resolve().then(() => FORMAS[f](e.target)).catch(err => aviso('Error: ' + (err && err.message ? err.message : err)));
   });
   document.addEventListener('input', e => { if (e.target.id === 'buscar') filtrarAlumnos(e.target.value); });
+  window.addEventListener('online', () => { if (nube.sesion) programarNube(); });
+  nube.sesion = leerSesionNube(); if (nube.sesion) programarNube();
   render();
 }
-if (typeof window === 'undefined') globalThis.__api = { FORMAS, sesion, render, db: () => db, reset: () => { db = datosIniciales(); }, addMov, cuenta, registrar, deshacerMov, comprar, canjear, motivoNoCompra, csvMovimientos, uid };
+if (typeof window === 'undefined') globalThis.__api = { FORMAS, sesion, render, nube, snapshotNube, enviarNube, nubeLogin, sincronizar, codigoDeMensaje, alLeerTarjeta, urlAlumno, db: () => db, reset: () => { db = datosIniciales(); }, addMov, cuenta, registrar, deshacerMov, comprar, canjear, motivoNoCompra, csvMovimientos, uid };
 else iniciar();
 </script>
 </body>
 </html>
+
+    
+  
