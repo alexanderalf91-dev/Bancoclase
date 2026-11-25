@@ -207,6 +207,32 @@ function comprar(alumnoId, itemId) {
   addMov({ alumnoId, tipo: 'gasto', delta: -item.precio, motivo: 'Compra: ' + item.nombre, compraId: compra.id });
   guardar(); return null;
 }
+/* ---------- Recompensas propias de cada maestro ---------- */
+const NIVELES = ['Bronce', 'Plata', 'Oro', 'Especial'];
+function validarItem(d) {
+  if (!String(d.nombre || '').trim()) return 'Escribe el nombre de la recompensa.';
+  if (!NIVELES.includes(d.nivel)) return 'Elige un nivel.';
+  if (!Number.isInteger(d.precio) || d.precio < 1) return 'El precio debe ser un número entero mayor a 0.';
+  if (!Number.isInteger(d.limiteMes) || d.limiteMes < 0) return 'El límite por mes debe ser 0 o más.';
+  return null;
+}
+function guardarItem(d, id) {
+  const err = validarItem(d); if (err) return { err };
+  const datos = { nombre: d.nombre.trim().slice(0, 60), nivel: d.nivel, precio: d.precio, regla: String(d.regla || '').trim().slice(0, 240), limiteMes: d.limiteMes };
+  let item;
+  if (id) {
+    item = db.catalogo.find(i => i.id === id);
+    if (!item) return { err: 'No se encontró la recompensa.' };
+    Object.assign(item, datos);
+  } else { item = Object.assign({ id: 'x' + uid(), activo: true }, datos); db.catalogo.push(item); }
+  guardar(); return { item };
+}
+function eliminarItem(id) {
+  if (db.compras.some(c => c.itemId === id)) return 'Ya tiene compras: mejor desactívala.';
+  const n = db.catalogo.findIndex(i => i.id === id);
+  if (n < 0) return 'No se encontró la recompensa.';
+  db.catalogo.splice(n, 1); guardar(); return null;
+}
 function canjear(compraId) {
   const c = db.compras.find(x => x.id === compraId);
   if (!c || c.estado !== 'pendiente') return false;
@@ -424,12 +450,14 @@ function filaMov(m, anulados, conNombre) {
 }
 function vistaTienda() {
   const pend = db.compras.filter(c => c.estado === 'pendiente').slice().reverse();
-  let h = '<h1>Tienda</h1><h2>Por canjear (' + pend.length + ')</h2>';
+  let h = '<h1>Tienda</h1><button class="pri" style="width:100%;margin:4px 0" data-act="agregarItem">+ Agregar recompensa</button><h2>Por canjear (' + pend.length + ')</h2>';
   h += pend.length ? pend.map(p => { const a = alumnoPor(p.alumnoId); return '<div class="card fila"><span><b>' + esc(a ? a.nombre : '?') + '</b><small class="nota" style="display:block">' + esc(p.nombre) + ' · ' + fechaCorta(p.ts) + '</small></span><button class="ok mini" style="flex:none" data-act="canjear" data-id="' + p.id + '">Canjear</button></div>'; }).join('') : '<p class="nota">No hay compras pendientes.</p>';
-  for (const nivel of ['Bronce', 'Plata', 'Oro']) {
-    h += '<h2>Nivel ' + nivel + '</h2>' + db.catalogo.filter(i => i.nivel === nivel).map(i =>
+  for (const nivel of NIVELES) {
+    const items = db.catalogo.filter(i => i.nivel === nivel);
+    if (nivel === 'Especial' && !items.length) continue;
+    h += '<h2>Nivel ' + nivel + '</h2>' + (items.map(i =>
       '<div class="card" style="' + (i.activo ? '' : 'opacity:.5') + '"><div class="fila" style="align-items:center"><b>' + esc(i.nombre) + '</b><span class="coin" style="flex:none">' + fmt(i.precio) + '</span></div>' +
-      '<p class="nota">' + esc(i.regla) + '</p><div class="fila"><button class="mini" data-act="editarPrecio" data-id="' + i.id + '">Cambiar precio</button><button class="mini" data-act="toggleItem" data-id="' + i.id + '">' + (i.activo ? 'Desactivar' : 'Activar') + '</button></div></div>').join('');
+      '<p class="nota">' + esc(i.regla) + (i.limiteMes ? ' · Máximo ' + i.limiteMes + ' al mes por alumno.' : '') + '</p><div class="fila"><button class="mini" data-act="editarItem" data-id="' + esc(i.id) + '">Editar</button><button class="mini" data-act="toggleItem" data-id="' + esc(i.id) + '">' + (i.activo ? 'Desactivar' : 'Activar') + '</button></div></div>').join('') || '<p class="nota">Sin recompensas en este nivel.</p>');
   }
   return h;
 }
@@ -467,6 +495,19 @@ function modalCompra() {
   abrirModal('<h1>Tienda</h1><p class="nota">' + esc(a.nombre) + ' · saldo <b class="coin">' + fmt(cuenta(a.id).saldo) + '</b></p><div class="lista">' +
     db.catalogo.filter(i => i.activo).map(i => { const por = motivoNoCompra(a.id, i); return '<button class="fila-al" ' + (por ? 'disabled' : 'data-act="comprarItem" data-id="' + i.id + '"') + '><span><span class="nivel">' + i.nivel + '</span>' + esc(i.nombre) + '<small>' + (por ? esc(por) : esc(i.regla)) + '</small></span><span class="coin">' + fmt(i.precio) + '</span></button>'; }).join('') +
     '</div><button style="width:100%;margin-top:14px" data-act="cerrarModal">Cerrar</button>');
+}
+function modalItem(id) {
+  const i = id ? db.catalogo.find(x => x.id === id) : { nombre: '', nivel: 'Bronce', precio: '', regla: '', limiteMes: 0 };
+  if (!i) return;
+  const tieneCompras = id && db.compras.some(c => c.itemId === id);
+  abrirModal('<h1>' + (id ? 'Editar recompensa' : 'Nueva recompensa') + '</h1><form data-form="item" data-id="' + esc(id || '') + '">' +
+    '<label class="nota">Nombre</label><input name="nombre" maxlength="60" value="' + esc(i.nombre) + '" placeholder="Ej. Dulce sorpresa" required>' +
+    '<div class="fila"><div><label class="nota">Nivel</label><select name="nivel">' + NIVELES.map(n => '<option' + (n === i.nivel ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></div>' +
+    '<div><label class="nota">Precio (monedas)</label><input name="precio" type="number" inputmode="numeric" min="1" value="' + esc(i.precio) + '" required></div></div>' +
+    '<label class="nota">Cómo funciona (lo verán los alumnos)</label><textarea name="regla" maxlength="240" style="min-height:90px" placeholder="Ej. Elige un dulce del frasco en el recreo.">' + esc(i.regla) + '</textarea>' +
+    '<label class="nota">Usos permitidos por mes, por alumno (0 = sin límite)</label><input name="limiteMes" type="number" inputmode="numeric" min="0" value="' + esc(i.limiteMes || 0) + '">' +
+    '<div class="fila"><button type="button" data-act="cerrarModal">Cancelar</button><button class="pri">Guardar</button></div></form>' +
+    (id ? (tieneCompras ? '<p class="nota">Esta recompensa ya tiene compras, así que no se puede eliminar. Puedes desactivarla.</p>' : '<button class="mal" style="width:100%;margin-top:6px" data-act="eliminarItem" data-id="' + esc(id) + '">Eliminar recompensa</button>') : ''));
 }
 function modalAgregar() {
   abrirModal('<h1>Agregar alumnos</h1><p class="nota">Escribe un nombre o apodo por línea. Puedes pegar la lista completa del grupo.</p>' +
@@ -568,9 +609,12 @@ const A = {
   nubeSalir: () => { nube.sesion = null; guardarSesionNube(null); render(); aviso('Nube desconectada.'); },
   bajaAlumno: () => { const a = alumnoPor(ui.alumnoId); a.activo = !a.activo; guardar(); cerrarModal(); render(); },
   asignarSel: d => asignarTarjeta($('#fAlumno').value, d.tarjeta),
-  editarPrecio: d => {
-    const i = db.catalogo.find(x => x.id === d.id); const v = parseInt(prompt('Nuevo precio de "' + i.nombre + '"', i.precio), 10);
-    if (Number.isInteger(v) && v > 0) { i.precio = v; guardar(); render(); } else if (!isNaN(v)) aviso('Precio no válido.');
+  agregarItem: () => modalItem(null),
+  editarItem: d => modalItem(d.id),
+  eliminarItem: d => {
+    if (!confirm('¿Eliminar esta recompensa? No se puede deshacer.')) return;
+    const e = eliminarItem(d.id); if (e) { aviso(e); return; }
+    cerrarModal(); render(); aviso('Recompensa eliminada.');
   },
   toggleItem: d => { const i = db.catalogo.find(x => x.id === d.id); i.activo = !i.activo; guardar(); render(); },
   exportJSON: () => descargar('banco-de-clase-' + hoy() + '.json', 'application/json', JSON.stringify(db, null, 1)),
@@ -614,6 +658,12 @@ const FORMAS = {
     else if (porNombre.length) { ui.tab = 'alumnos'; render(); const b = $('#buscar'); if (b) { b.value = q; filtrarAlumnos(q); } }
     else aviso('No se encontró ningún alumno.');
   },
+  item: f => {
+    const d = { nombre: f.nombre.value, nivel: f.nivel.value, precio: parseInt(f.precio.value, 10), regla: f.regla.value, limiteMes: parseInt(f.limiteMes.value || '0', 10) };
+    const r = guardarItem(d, f.dataset.id || null);
+    if (r.err) { aviso(r.err); return; }
+    cerrarModal(); render(); aviso(f.dataset.id ? 'Recompensa actualizada.' : 'Recompensa agregada.');
+  },
   nube: async f => {
     try { await nubeLogin(f.email.value.trim(), f.pw.value); }
     catch (e) { aviso(e.message || 'No se pudo conectar.'); return; }
@@ -636,11 +686,8 @@ function iniciar() {
   nube.sesion = leerSesionNube(); if (nube.sesion) programarNube();
   render();
 }
-if (typeof window === 'undefined') globalThis.__api = { FORMAS, sesion, render, nube, snapshotNube, enviarNube, nubeLogin, sincronizar, codigoDeMensaje, alLeerTarjeta, urlAlumno, db: () => db, reset: () => { db = datosIniciales(); }, addMov, cuenta, registrar, deshacerMov, comprar, canjear, motivoNoCompra, csvMovimientos, uid };
+if (typeof window === 'undefined') globalThis.__api = { FORMAS, guardarItem, eliminarItem, validarItem, sesion, render, nube, snapshotNube, enviarNube, nubeLogin, sincronizar, codigoDeMensaje, alLeerTarjeta, urlAlumno, db: () => db, reset: () => { db = datosIniciales(); }, addMov, cuenta, registrar, deshacerMov, comprar, canjear, motivoNoCompra, csvMovimientos, uid };
 else iniciar();
 </script>
 </body>
 </html>
-
-    
-  
